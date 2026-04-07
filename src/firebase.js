@@ -1,3 +1,25 @@
+// ─── Firebase Datenbank-URL ────────────────────────────────────────────────────
+const FIREBASE_URL = "https://saucepan-23db2-default-rtdb.europe-west1.firebasedatabase.app/essensplan";
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const FIREBASE_NOT_CONFIGURED = FIREBASE_URL.includes("DEIN-PROJEKT");
+
+export async function loadFromFirebase() {
+  const res = await fetch(`${FIREBASE_URL}.json`);
+  if (!res.ok) throw new Error(`Firebase Ladefehler: ${res.status}`);
+  return await res.json();
+}
+
+export async function saveToFirebase(data, user) {
+  const token = await user.getIdToken();
+  const res = await fetch(`${FIREBASE_URL}.json?auth=${token}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Firebase Speicherfehler: ${res.status}`);
+}
+
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 
