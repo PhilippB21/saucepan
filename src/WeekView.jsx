@@ -1,5 +1,16 @@
 import { DAYS, isToday } from "./utils.js";
 
+function getDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); }
+  catch { return "Rezept"; }
+}
+
+function linkHref(link) { return typeof link === "string" ? link : link.url; }
+function linkLabel(link) {
+  if (typeof link === "string") return getDomain(link);
+  return link.label || getDomain(link.url);
+}
+
 export function WeekView({ weekPlan, weekDates, recipes, user, onStartEditing, onRemoveMeal }) {
   return (
     <div style={{ marginTop: 16 }}>
@@ -71,7 +82,7 @@ export function WeekView({ weekPlan, weekDates, recipes, user, onStartEditing, o
                     {recipe.links?.map((link, idx) => (
                       <a
                         key={idx}
-                        href={link}
+                        href={linkHref(link)}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={e => e.stopPropagation()}
@@ -84,7 +95,7 @@ export function WeekView({ weekPlan, weekDates, recipes, user, onStartEditing, o
                           display: "inline-block",
                         }}
                       >
-                        🔗 Rezept {recipe.links.length > 1 ? idx + 1 : ""}
+                        🔗 {linkLabel(link)}
                       </a>
                     ))}
                   </div>

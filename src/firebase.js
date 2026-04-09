@@ -4,8 +4,10 @@ const FIREBASE_URL = "https://saucepan-23db2-default-rtdb.europe-west1.firebased
 
 export const FIREBASE_NOT_CONFIGURED = FIREBASE_URL.includes("DEIN-PROJEKT");
 
-export async function loadFromFirebase() {
-  const res = await fetch(`${FIREBASE_URL}.json`);
+export async function loadFromFirebase(user) {
+  const token = user ? await user.getIdToken() : null;
+  const url = token ? `${FIREBASE_URL}.json?auth=${token}` : `${FIREBASE_URL}.json`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Firebase Ladefehler: ${res.status}`);
   return await res.json();
 }

@@ -8,7 +8,7 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
   const [inputValue, setInputValue] = useState("");
   const [emojiValue, setEmojiValue] = useState("");
   const [noteValue, setNoteValue] = useState("");
-  const [linkValues, setLinkValues] = useState([""]);
+  const [linkValues, setLinkValues] = useState([{ url: "", label: "" }]);
   const [kidFavorite, setKidFavorite] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("alle");
@@ -23,7 +23,9 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
     setInputValue(recipe?.name || "");
     setEmojiValue(recipe?.emoji || "");
     setNoteValue(recipe?.note || "");
-    setLinkValues(recipe?.links?.length ? recipe.links : [""]);
+    setLinkValues(recipe?.links?.length
+      ? recipe.links.map(l => typeof l === "string" ? { url: l, label: "" } : l)
+      : [{ url: "", label: "" }]);
     setKidFavorite(recipe?.kidFav || false);
     setShowSuggestions(false);
     setShowAutocomplete(false);
@@ -45,10 +47,29 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
   function applyAutocomplete(recipe) {
     setInputValue(recipe.name);
     setEmojiValue(recipe.emoji || "");
-    setLinkValues(recipe.links?.length ? recipe.links : [""]);
+    setLinkValues(recipe.links?.length
+      ? recipe.links.map(l => typeof l === "string" ? { url: l, label: "" } : l)
+      : [{ url: "", label: "" }]);
     setNoteValue(recipe.note || "");
     setKidFavorite(!!recipe.kidFav);
     setShowAutocomplete(false);
+  }
+
+  async function fetchLinkTitle(url, idx) {
+    if (!url.startsWith("http")) return;
+    try {
+      const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+      const data = await res.json();
+      const title = data?.data?.title;
+      if (title) {
+        setLinkValues(prev => {
+          if (prev[idx]?.label) return prev; // don't overwrite if user already typed
+          const next = [...prev];
+          next[idx] = { ...next[idx], label: title };
+          return next;
+        });
+      }
+    } catch {}
   }
 
   function getSuggestions() {
@@ -223,38 +244,68 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
 
         {/* Links */}
         {linkValues.map((lv, idx) => (
-          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: idx === 0 ? 8 : 4 }}>
-            <input
-              value={lv}
-              onChange={e => {
-                const next = [...linkValues];
-                next[idx] = e.target.value;
-                setLinkValues(next);
-              }}
-              placeholder="🔗 Rezept-Link (optional)"
-              style={{
-                flex: 1,
-                padding: "12px 0",
-                border: "none",
-                borderBottom: "1px solid rgba(0,0,0,0.08)",
-                background: "transparent",
-                fontSize: 14,
-                fontFamily: "'DM Sans', sans-serif",
-                outline: "none",
-                color: "var(--text-primary, #1a1a2e)",
-                boxSizing: "border-box",
-              }}
-            />
-            {linkValues.length > 1 && (
-              <button
-                onClick={() => setLinkValues(linkValues.filter((_, i) => i !== idx))}
-                style={{ background: "none", border: "none", fontSize: 16, opacity: 0.3, cursor: "pointer", padding: "4px 6px", flexShrink: 0 }}
-              >✕</button>
+          <div key={idx} style={{ marginTop: idx === 0 ? 8 : 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                value={lv.url}
+                onChange={e => {
+                  const val = e.target.value;
+                  const match = val.match(/https?:\/\/\S+/);
+                  const url = (match && match[0] !== val.trim()) ? match[0] : val;
+                  const next = [...linkValues];
+                  next[idx] = { ...next[idx], url };
+                  setLinkValues(next);
+                  if (match || url.startsWith("http")) fetchLinkTitle(url, idx);
+                }}
+                placeholder="🔗 Link (optional)"
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  border: "none",
+                  borderBottom: "1px solid rgba(0,0,0,0.08)",
+                  background: "transparent",
+                  fontSize: 14,
+                  fontFamily: "'DM Sans', sans-serif",
+                  outline: "none",
+                  color: "var(--text-primary, #1a1a2e)",
+                  boxSizing: "border-box",
+                }}
+              />
+              {linkValues.length > 1 && (
+                <button
+                  onClick={() => setLinkValues(linkValues.filter((_, i) => i !== idx))}
+                  style={{ background: "none", border: "none", fontSize: 16, opacity: 0.3, cursor: "pointer", padding: "4px 6px", flexShrink: 0 }}
+                >✕</button>
+              )}
+            </div>
+            {lv.url.startsWith("http") && (
+              <input
+                value={lv.label}
+                onChange={e => {
+                  const next = [...linkValues];
+                  next[idx] = { ...next[idx], label: e.target.value };
+                  setLinkValues(next);
+                }}
+                placeholder="Bezeichnung…"
+                style={{
+                  width: "100%",
+                  padding: "6px 0",
+                  border: "none",
+                  borderBottom: "1px solid rgba(0,0,0,0.05)",
+                  background: "transparent",
+                  fontSize: 12,
+                  fontFamily: "'DM Sans', sans-serif",
+                  outline: "none",
+                  color: "var(--text-primary, #1a1a2e)",
+                  opacity: 0.6,
+                  boxSizing: "border-box",
+                }}
+              />
             )}
           </div>
         ))}
         <button
-          onClick={() => setLinkValues([...linkValues, ""])}
+          onClick={() => setLinkValues([...linkValues, { url: "", label: "" }])}
           style={{ ...pillBtnStyle, marginTop: 6, fontSize: 12 }}
         >+ Link hinzufügen</button>
 
@@ -366,7 +417,9 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
                     setInputValue(s.name);
                     setEmojiValue(s.emoji || "");
                     setKidFavorite(!!s.kidFav);
-                    setLinkValues(s.links?.length ? s.links : [""]);
+                    setLinkValues(s.links?.length
+                      ? s.links.map(l => typeof l === "string" ? { url: l, label: "" } : l)
+                      : [{ url: "", label: "" }]);
                     setNoteValue(s.note || "");
                     setShowSuggestions(false);
                   }}

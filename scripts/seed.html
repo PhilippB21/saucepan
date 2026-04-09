@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Saucepan – Datenbank befüllen</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; color: #1a1a2e; background: #faf9f6; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    p  { color: #666; font-size: 14px; }
+    button { padding: 12px 24px; border-radius: 10px; border: none; background: #e07a5f; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 16px; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #log { margin-top: 24px; font-size: 13px; line-height: 1.8; white-space: pre-wrap; background: #f0ede8; padding: 16px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <h1>🌱 Datenbank befüllen</h1>
+  <p>Dieses Skript schreibt die Rezeptliste einmalig in die Firebase-Datenbank.<br>
+     Bereits vorhandene Daten werden <strong>überschrieben</strong>.</p>
+
+  <button id="btnLogin">Mit Google anmelden</button>
+  <button id="btnSeed" disabled>Datenbank befüllen</button>
+
+  <div id="log"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+
+    // ── Firebase-Konfiguration ──────────────────────────────────────────────────
+    const firebaseConfig = {
+      apiKey:            "AIzaSyDldzX-6SVJGvTZFX_E4txD5WbVH4aoFLI",
+      authDomain:        "saucepan-23db2.firebaseapp.com",
+      databaseURL:       "https://saucepan-23db2-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId:         "saucepan-23db2",
+      storageBucket:     "saucepan-23db2.firebasestorage.app",
+      messagingSenderId: "312719388790",
+      appId:             "1:312719388790:web:927b6e606016c6036a6f57",
+    };
+    const FIREBASE_URL = "https://saucepan-23db2-default-rtdb.europe-west1.firebasedatabase.app/essensplan";
+    // ───────────────────────────────────────────────────────────────────────────
+
+    const app  = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    const log = (...args) => {
+      document.getElementById("log").textContent += args.join(" ") + "\n";
+    };
+
+    // ── Hilfsfunktionen ────────────────────────────────────────────────────────
+    function nameToId(name) {
+      return "r_" + name.toLowerCase()
+        .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+        .replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").slice(0, 40);
+    }
+
+    // ── Rezeptliste ────────────────────────────────────────────────────────────
+    const SAMPLE_RECIPES = [
+      { name: "Allgäuer Kartoffelsuppe", tags: ["suppe", "comfort", "vegetarisch"], emoji: "🥣", kidFav: false, link: "https://www.chefkoch.de/rezepte/384801125013411/Allgaeuer-Kartoffelsuppe-a-la-Naddel.html", note: "" },
+      { name: "Baguette mit Hähnchen und Salat", tags: ["hähnchen", "schnell"], emoji: "🥖", kidFav: false, link: "", note: "" },
+      { name: "Bowl mit Süßkartoffeln, Rotkohl, Hummus, Hähnchen", tags: ["bowl", "hähnchen"], emoji: "🥗", kidFav: false, link: "", note: "" },
+      { name: "Brokkoli-Tofu-Pfanne mit Erdnusssauce", tags: ["tofu", "asiatisch", "pfanne"], emoji: "🥦", kidFav: false, link: "https://www.chefkoch.de/rezepte/1821701295613556/Brokkoli-Tofu-Pfanne-mit-Erdnusssauce.html", note: "" },
+      { name: "Brokkolicurry mit roten Linsen", tags: ["curry", "vegan", "linsen"], emoji: "🍛", kidFav: false, link: "https://www.weightwatchers.com/de/rezept/broccolicurry-mit-roten-linsen/591aeb9416581df91e8726f4", note: "" },
+      { name: "Buchweizen-Gemüse-Auflauf", tags: ["ofen", "vegan", "buchweizen"], emoji: "🫕", kidFav: false, link: "https://www.rewe.de/rezepte/buchweizen-gemuese-auflauf/", note: "" },
+      { name: "Burger", tags: ["schnell", "klassiker"], emoji: "🍔", kidFav: true, link: "", note: "" },
+      { name: "Burger + Ofen Kartoffeln", tags: ["klassiker", "ofen"], emoji: "🍔", kidFav: true, link: "", note: "" },
+      { name: "Burger mit Kartoffelgratin", tags: ["klassiker", "comfort", "ofen"], emoji: "🍔", kidFav: false, link: "https://www.chefkoch.de/rezepte/837601188560864/Kartoffelgratin.html", note: "" },
+      { name: "Chili Sin Carne", tags: ["vegan", "mexikanisch", "günstig"], emoji: "🌶️", kidFav: false, link: "https://www.chefkoch.de/rezepte/2306121367961970/Chili-sin-carne.html", note: "" },
+      { name: "Chili Sin Carne mit Nudeln", tags: ["vegan", "mexikanisch", "nudeln"], emoji: "🌶️", kidFav: false, link: "", note: "" },
+      { name: "Chili sin Carne mit Reis", tags: ["vegan", "mexikanisch", "reis"], emoji: "🌶️", kidFav: false, link: "https://www.chefkoch.de/rezepte/2306121367961970/Chili-sin-carne.html?portionen=7", note: "" },
+      { name: "Döner", tags: ["schnell", "klassiker"], emoji: "🥙", kidFav: false, link: "", note: "" },
+      { name: "Flammkuchen", tags: ["backen", "schnell"], emoji: "🫓", kidFav: true, link: "", note: "" },
+      { name: "Flammkuchen mit Birne, Ziegenkäse und Walnüssen", tags: ["backen", "vegetarisch"], emoji: "🫓", kidFav: false, link: "", note: "" },
+      { name: "Gemüse-Nudel-Auflauf", tags: ["ofen", "vegetarisch", "nudeln"], emoji: "🫕", kidFav: false, link: "", note: "" },
+      { name: "Gemüseeintopf mit Kartoffeln und Würstchen", tags: ["suppe", "eintopf"], emoji: "🍲", kidFav: false, link: "https://cookidoo.de/recipes/recipe/de-DE/r312843", note: "" },
+      { name: "Gemüsetorte", tags: ["backen", "vegetarisch"], emoji: "🥧", kidFav: false, link: "", note: "" },
+      { name: "Gnocchi Caprese", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🥟", kidFav: false, link: "https://cookidoo.de/recipes/recipe/de-DE/r692147", note: "" },
+      { name: "Gnocchi mit Spinat", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🥟", kidFav: false, link: "https://www.eatbetter.de/rezepte/gnocchi-mit-spinat-schnell-lecker", note: "" },
+      { name: "Gnocchi Spinat Pfanne", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🥟", kidFav: false, link: "", note: "" },
+      { name: "Grillgemüse + Würstchen", tags: ["grill", "schnell"], emoji: "🌭", kidFav: false, link: "", note: "" },
+      { name: "Grünkohl", tags: ["eintopf", "comfort"], emoji: "🥬", kidFav: false, link: "https://www.chefkoch.de/rezepte/237101096472618/Gruenkohl-wie-ihn-Mutter-kochte.html", note: "" },
+      { name: "Gustav grün", tags: ["salat"], emoji: "🥗", kidFav: false, link: "", note: "" },
+      { name: "Hackbraten mit Ofenkartoffeln & -gemüse", tags: ["ofen", "fleisch", "comfort"], emoji: "🍖", kidFav: false, link: "https://www.chefkoch.de/rezepte/111041046526210/Hackbraten-Roulade-mit-Spinat.html", note: "" },
+      { name: "Hackfleischspieße + Gemüsespieße", tags: ["grill", "fleisch"], emoji: "🍢", kidFav: false, link: "https://sweetchefberry.one/saftige-rinderhackspiese-vom-grill-nie-mehr-trocken/", note: "" },
+      { name: "Hähnchen Gemüse Reis", tags: ["hähnchen", "reis", "schnell"], emoji: "🍗", kidFav: false, link: "https://cookidoo.de/recipes/recipe/de-DE/r453314", note: "" },
+      { name: "Healthy Burrito Bowls", tags: ["mexikanisch", "bowl", "vegan"], emoji: "🌯", kidFav: false, link: "https://www.mysugarfreekitchen.com/healthy-burrito-bowls/#recipe", note: "" },
+      { name: "Kartoffel-Brokkoli-Auflauf", tags: ["ofen", "vegetarisch"], emoji: "🥦", kidFav: false, link: "", note: "" },
+      { name: "Kartoffel-Gemüse-Gratin mit Brokkoli und Karotten", tags: ["ofen", "vegetarisch", "comfort"], emoji: "🥔", kidFav: false, link: "", note: "" },
+      { name: "Kartoffel-Möhren-Porree Suppe", tags: ["suppe", "vegetarisch"], emoji: "🥣", kidFav: false, link: "", note: "" },
+      { name: "Kartoffelpüree mit Gemüse Sauce (Zucchini, Paprika, Champignons)", tags: ["vegetarisch", "comfort"], emoji: "🥔", kidFav: false, link: "", note: "" },
+      { name: "Kartoffelpüree mit Spinat", tags: ["comfort", "vegetarisch"], emoji: "🥔", kidFav: true, link: "", note: "" },
+      { name: "Kartoffelpüree mit Spinat + Frikadellen", tags: ["comfort", "fleisch"], emoji: "🥔", kidFav: false, link: "https://www.chefkoch.de/rezepte/819141186405890/Omas-beste-Frikadellen.html", note: "" },
+      { name: "Kartoffelpüree Puffer", tags: ["vegetarisch", "schnell"], emoji: "🥔", kidFav: false, link: "", note: "" },
+      { name: "Kartoffelpüree, Spinat und Fischstäbchen", tags: ["fisch", "comfort"], emoji: "🥔", kidFav: false, link: "", note: "" },
+      { name: "Kartoffelsuppe", tags: ["suppe", "comfort", "vegetarisch"], emoji: "🥣", kidFav: false, link: "https://www.chefkoch.de/rezepte/384801125013411/Allgaeuer-Kartoffelsuppe-a-la-Naddel.html", note: "" },
+      { name: "Käse-Lauch-Suppe", tags: ["suppe", "comfort"], emoji: "🧀", kidFav: false, link: "https://www.chefkoch.de/rezepte/982031203667502/Kaese-Lauch-Suppe-mit-Hackfleisch.html", note: "" },
+      { name: "Käsespätzle", tags: ["spätzle", "comfort", "vegetarisch"], emoji: "🧀", kidFav: true, link: "https://www.chefkoch.de/rezepte/1082671214034473/Cremige-Kaesespaetzle.html", note: "" },
+      { name: "Kokosnuss Dhal", tags: ["indisch", "vegan", "günstig"], emoji: "🍛", kidFav: false, link: "https://cookidoo.de/recipes/recipe/de-DE/r124130", note: "" },
+      { name: "Kürbis-Kartoffel-Suppe", tags: ["suppe", "herbst", "vegan"], emoji: "🎃", kidFav: false, link: "", note: "" },
+      { name: "Kürbislasagne", tags: ["pasta", "ofen", "herbst", "vegetarisch"], emoji: "🎃", kidFav: false, link: "https://www.chefkoch.de/rezepte/2620851411639709/Kuerbislasagne.html", note: "" },
+      { name: "Kürbisrisotto", tags: ["reis", "herbst", "vegetarisch"], emoji: "🎃", kidFav: false, link: "https://cookidoo.de/recipes/recipe/de-DE/r143961", note: "" },
+      { name: "Kürbissauce mit Nudeln", tags: ["pasta", "herbst", "vegetarisch"], emoji: "🎃", kidFav: false, link: "", note: "" },
+      { name: "Kürbissuppe", tags: ["suppe", "herbst", "vegan"], emoji: "🎃", kidFav: false, link: "", note: "" },
+      { name: "Lasagne", tags: ["pasta", "ofen", "klassiker"], emoji: "🫕", kidFav: false, link: "", note: "" },
+      { name: "Linsenbraten mit Kartoffelpüree", tags: ["vegan", "comfort"], emoji: "🍲", kidFav: false, link: "", note: "" },
+      { name: "Maultaschen Kühlregal", tags: ["klassiker", "comfort"], emoji: "🥟", kidFav: true, link: "", note: "" },
+      { name: "Maultaschen selbstgemacht", tags: ["klassiker", "comfort"], emoji: "🥟", kidFav: true, link: "https://cookidoo.de/recipes/recipe/de-DE/r708526", note: "" },
+      { name: "Milchreis", tags: ["schnell", "vegetarisch"], emoji: "🍚", kidFav: true, link: "", note: "" },
+      { name: "Nudeln mit Gemüse", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Gemüsesauce", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Hähnchen in Sahne Paprika Sauce mit Käse überbacken", tags: ["pasta", "hähnchen", "ofen"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Hähnchen in Sahne Sauce", tags: ["pasta", "hähnchen", "schnell"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Käsesauce", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Kürbis-Walnuss-Gorgonzola Sauce", tags: ["pasta", "herbst", "vegetarisch"], emoji: "🍝", kidFav: false, link: "https://www.chefkoch.de/rezepte/391761126793272/Bandnudeln-mit-Kuerbis-und-Gorgonzola-Walnuss-Sauce.html", note: "" },
+      { name: "Nudeln mit Möhren", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Pesto", tags: ["pasta", "schnell", "vegan"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Pilz Möhren Sahne Sauce", tags: ["pasta", "vegetarisch"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Nudeln mit Spinatsauce", tags: ["pasta", "schnell", "vegetarisch"], emoji: "🍝", kidFav: true, link: "", note: "" },
+      { name: "Nudeln mit Tomatensauce", tags: ["pasta", "schnell", "vegan"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Ofengemüse", tags: ["ofen", "vegan", "einfach"], emoji: "🫕", kidFav: false, link: "", note: "" },
+      { name: "Ofenkartoffel mit Sour Cream", tags: ["ofen", "vegetarisch"], emoji: "🥔", kidFav: false, link: "", note: "" },
+      { name: "Pfannkuchen", tags: ["pfannkuchen", "vegetarisch", "schnell"], emoji: "🥞", kidFav: false, link: "https://www.chefkoch.de/rezepte/1208161226570428/Der-perfekte-Pfannkuchen-gelingt-einfach-immer.html", note: "" },
+      { name: "Pizza", tags: ["backen", "schnell", "klassiker"], emoji: "🍕", kidFav: true, link: "", note: "" },
+      { name: "Quiche mit Spinat, Feta und Tomaten", tags: ["backen", "vegetarisch", "eier"], emoji: "🥧", kidFav: false, link: "https://www.chefkoch.de/rezepte/2801401432239694/Quiche-mit-Spinat-Feta-Tomaten-und-Pinienkernen.html", note: "" },
+      { name: "Reis mit Gemüse", tags: ["reis", "schnell", "vegan"], emoji: "🍚", kidFav: false, link: "", note: "" },
+      { name: "Reis mit Hähnchen und Paprika", tags: ["reis", "hähnchen", "schnell"], emoji: "🍗", kidFav: false, link: "", note: "" },
+      { name: "Reis mit Zucchini und Feta", tags: ["reis", "vegetarisch"], emoji: "🍚", kidFav: false, link: "https://de.pinterest.com/pin/68749238836/", note: "" },
+      { name: "Spaghetti Carbonara", tags: ["pasta", "schnell"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Spätzle mit Mozzarella Hähnchen", tags: ["spätzle", "hähnchen"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Spätzle mit Spinatsauce", tags: ["spätzle", "vegetarisch"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Spätzle mit Tomatensauce", tags: ["spätzle", "vegetarisch", "schnell"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Spinat-Feta-Lasagne", tags: ["pasta", "ofen", "vegetarisch"], emoji: "🫕", kidFav: false, link: "", note: "" },
+      { name: "Spinatknödel", tags: ["vegetarisch", "comfort"], emoji: "🥟", kidFav: true, link: "https://cookidoo.de/recipes/recipe/de-DE/r85370", note: "" },
+      { name: "Spinatlasagne", tags: ["pasta", "ofen", "vegetarisch"], emoji: "🫕", kidFav: false, link: "https://www.chefkoch.de/rezepte/1231981228220302/Spinatlasagne.html", note: "" },
+      { name: "Tofu Gyros mit Reis", tags: ["griechisch", "tofu", "reis"], emoji: "🥙", kidFav: false, link: "", note: "" },
+      { name: "Tofu Gyros mit Reis und Tzatziki", tags: ["griechisch", "tofu"], emoji: "🥙", kidFav: false, link: "https://julesmenu.de/tofu-gyros/", note: "" },
+      { name: "Tortellini Auflauf", tags: ["pasta", "ofen", "vegetarisch"], emoji: "🫕", kidFav: false, link: "https://emmasessen.de/tortellini-auflauf-mit-tomaten-mozzarella/", note: "" },
+      { name: "Tortellini mit Gemüse", tags: ["pasta", "vegetarisch", "schnell"], emoji: "🥟", kidFav: false, link: "", note: "" },
+      { name: "Tortellini mit Käsesauce", tags: ["pasta", "vegetarisch", "schnell"], emoji: "🥟", kidFav: false, link: "", note: "" },
+      { name: "Tortelloni mit Käse-Schinken-Sauce", tags: ["pasta", "schnell"], emoji: "🥟", kidFav: true, link: "", note: "" },
+      { name: "Tortelloni mit Tomatensauce für jeden Tag", tags: ["pasta", "schnell", "vegan"], emoji: "🥟", kidFav: true, link: "https://cookidoo.de/recipes/recipe/de-DE/r134617", note: "" },
+      { name: "Vegane Bolognese mit Blumenkohl", tags: ["pasta", "vegan"], emoji: "🍝", kidFav: false, link: "", note: "" },
+      { name: "Vegetarische Burger", tags: ["vegetarisch", "klassiker"], emoji: "🍔", kidFav: false, link: "", note: "" },
+      { name: "Vollkornpizza", tags: ["backen", "vegetarisch"], emoji: "🍕", kidFav: false, link: "", note: "" },
+      { name: "Wraps", tags: ["schnell"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps + Halloumi", tags: ["vegetarisch", "schnell"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Couscous + Halloumi", tags: ["vegetarisch"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Falafel", tags: ["orientalisch", "vegan"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Falafel, Joghurt-Dressing und frischem Gemüse", tags: ["orientalisch", "vegetarisch"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Feta", tags: ["vegetarisch", "schnell"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Gemüse und Halloumi", tags: ["vegetarisch"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Halloumi", tags: ["vegetarisch", "schnell"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Wraps mit Tofu Gyros und Halloumi", tags: ["tofu", "vegetarisch"], emoji: "🌯", kidFav: false, link: "", note: "" },
+      { name: "Würstchen mit Kartoffelpüree", tags: ["comfort", "schnell"], emoji: "🌭", kidFav: false, link: "", note: "" },
+      { name: "Zucchini Risotto", tags: ["reis", "vegetarisch"], emoji: "🍚", kidFav: false, link: "https://cookidoo.de/recipes/recipe/de-DE/r100419", note: "" },
+    ];
+
+    const recipes = Object.fromEntries(SAMPLE_RECIPES.map(r => {
+      const { link, ...rest } = r;
+      return [nameToId(r.name), { ...rest, links: link ? [link] : [] }];
+    }));
+
+    const SEED_DATA = {
+      recipes,
+      plans: {},
+    };
+
+    // ── UI-Logik ───────────────────────────────────────────────────────────────
+    let currentUser = null;
+
+    document.getElementById("btnLogin").addEventListener("click", async () => {
+      try {
+        const result = await signInWithPopup(auth, new GoogleAuthProvider());
+        currentUser = result.user;
+        log(`✅ Eingeloggt als: ${currentUser.email}`);
+        document.getElementById("btnLogin").disabled = true;
+        document.getElementById("btnSeed").disabled = false;
+      } catch (e) {
+        log(`❌ Login fehlgeschlagen: ${e.message}`);
+      }
+    });
+
+    document.getElementById("btnSeed").addEventListener("click", async () => {
+      if (!currentUser) return;
+      document.getElementById("btnSeed").disabled = true;
+      log("⏳ Schreibe Daten...");
+      try {
+        const token = await currentUser.getIdToken();
+        const res = await fetch(`${FIREBASE_URL}.json?auth=${token}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(SEED_DATA),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        log(`✅ Fertig! ${Object.keys(recipes).length} Rezepte geschrieben.`);
+        log("   Pläne: leer");
+        log("\nDu kannst dieses Fenster jetzt schließen.");
+      } catch (e) {
+        log(`❌ Fehler: ${e.message}`);
+        document.getElementById("btnSeed").disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -16,65 +16,106 @@ Wöchentlicher Essensplaner für mehrere Geräte und Personen. Daten werden in F
 1. [Firebase Console](https://console.firebase.google.com) öffnen
 2. **„Projekt hinzufügen"** → Namen vergeben (z. B. `saucepan`) → Projekt erstellen
 3. Im Projekt: linkes Menü → **„Erstellen" → „Realtime Database"**
-4. **„Datenbank erstellen"** → Standort wählen → **Testmodus** auswählen → Fertig
+4. **„Datenbank erstellen"** → Standort wählen → Im nächsten Schritt die Regeln manuell setzen (siehe [Abschnitt 4](#4-datenbankregeln))
 
-> Der Testmodus erlaubt 30 Tage lang uneingeschränkten Lese-/Schreibzugriff. Danach müssen die Regeln angepasst werden (siehe [Abschnitt 5](#5-sicherheitsregeln-optional)).
+### 1.2 Google Sign-In aktivieren
 
-### 1.2 Datenbank-URL eintragen
+1. Firebase Console → **Authentication** → **Sign-in method**
+2. **Google** aktivieren → Projekt-Support-E-Mail angeben → Speichern
 
-Die URL der Datenbank erscheint oben in der Realtime-Database-Übersicht und sieht so aus:
+### 1.3 Firebase Web-App Konfiguration
+
+1. Firebase Console → **Projekteinstellungen** (Zahnrad) → **Deine Apps** → Web-App auswählen
+2. Unter **SDK-Konfiguration** die Werte kopieren und in `.env.local` eintragen:
+
 ```
-https://DEIN-PROJEKT-default-rtdb.europe-west1.firebasedatabase.app
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=DEIN-PROJEKT.firebaseapp.com
+VITE_FIREBASE_DATABASE_URL=https://DEIN-PROJEKT-default-rtdb.europe-west1.firebasedatabase.app
+VITE_FIREBASE_PROJECT_ID=DEIN-PROJEKT
+VITE_FIREBASE_STORAGE_BUCKET=DEIN-PROJEKT.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
 ```
 
-Diese URL in `essensplan.jsx` eintragen (Zeile 7):
-```js
-const FIREBASE_URL = "https://DEIN-PROJEKT-default-rtdb.europe-west1.firebasedatabase.app/essensplan";
-```
+> Vorlage: `.env.example`. Die Datei `.env.local` niemals committen.
 
 ---
 
 ## 2. Projekt aufsetzen
 
 ```bash
-# Repository klonen oder Ordner öffnen
-cd saucepan
-
-# Dependencies installieren
 npm install
-
-# Firebase CLI global installieren
 npm install -g firebase-tools
-
-# Bei Firebase anmelden
 firebase login
-
-# Firebase-Projekt verknüpfen
-firebase use --add
-# → Projekt aus der Liste wählen, Alias "default" vergeben
+firebase use --add   # Projekt aus der Liste wählen, Alias "default" vergeben
 ```
 
 ---
 
-## 3. Lokal testen
+## 3. Datenbank initial befüllen
+
+Die App enthält keine eingebetteten Fallback-Daten mehr – sie arbeitet ausschließlich mit dem, was in Firebase steht. Die Rezeptliste muss daher **einmalig** per Seed-Skript in die Datenbank geschrieben werden.
 
 ```bash
 npm run dev
 ```
 
-Die App ist dann unter [http://localhost:5173](http://localhost:5173) erreichbar.
+Dann im Browser öffnen:
 
-Beim ersten Start werden Beispieldaten automatisch in Firebase geschrieben. Öffne die App auf einem zweiten Gerät (gleiche URL oder nach dem Deploy) – beide Geräte zeigen denselben Essensplan und synchronisieren sich alle 30 Sekunden.
+```
+http://localhost:5173/scripts/seed.html
+```
+
+1. **„Mit Google anmelden"** klicken und ein erlaubtes Konto verwenden
+2. **„Datenbank befüllen"** klicken
+3. Nach der Erfolgsmeldung das Fenster schließen
+
+Das Skript schreibt alle Rezepte sowie leere Pläne und einen leeren Verlauf. **Bereits vorhandene Daten in Firebase werden dabei überschrieben.**
 
 ---
 
-## 4. Deployen
+## 4. Datenbankregeln
+
+In der Firebase Console unter **Realtime Database → Regeln** diese Regeln setzen und die erlaubten E-Mail-Adressen anpassen:
+
+```json
+{
+  "rules": {
+    ".read": "auth != null && (auth.token.email === 'adresse1@gmail.com' || auth.token.email === 'adresse2@gmail.com')",
+    ".write": "auth != null && (auth.token.email === 'adresse1@gmail.com' || auth.token.email === 'adresse2@gmail.com')"
+  }
+}
+```
+
+Die gleichen Adressen müssen auch in `essensplan.jsx` in der `ALLOWED_EMAILS`-Liste stehen:
+
+```js
+const ALLOWED_EMAILS = ["adresse1@gmail.com", "adresse2@gmail.com"];
+```
+
+### Authorized Domains
+
+Firebase Console → **Authentication** → **Settings** → **Authorized domains**:
+- `localhost` ist bereits eingetragen (für lokale Entwicklung)
+- Nach dem Deploy: `DEIN-PROJEKT.web.app` hinzufügen
+
+---
+
+## 5. Lokal testen
 
 ```bash
-# Produktions-Build erstellen
-npm run build
+npm run dev
+```
 
-# Auf Firebase Hosting deployen
+Die App ist unter [http://localhost:5173](http://localhost:5173) erreichbar.
+
+---
+
+## 6. Deployen
+
+```bash
+npm run build
 firebase deploy
 ```
 
@@ -83,63 +124,10 @@ Nach dem Deploy gibt Firebase eine öffentliche URL aus:
 https://DEIN-PROJEKT.web.app
 ```
 
-Diese URL ist von jedem Gerät und Browser erreichbar.
-
-### Zukünftige Updates deployen
+### Zukünftige Updates
 
 ```bash
 npm run build && firebase deploy
-```
-
----
-
-## 5. Google-Anmeldung einrichten
-
-Die App zeigt den Essensplan für alle ohne Login (Read-only). Bearbeiten ist nur nach Anmeldung möglich.
-
-### 5.1 Google Sign-In in Firebase aktivieren
-
-1. Firebase Console → **Authentication** → **Sign-in method**
-2. **Google** aktivieren → Projekt-Support-E-Mail angeben → Speichern
-
-### 5.2 Firebase Web-App Konfiguration eintragen
-
-1. Firebase Console → **Projekteinstellungen** (Zahnrad) → **Deine Apps** → Web-App auswählen
-2. Unter **SDK-Konfiguration** das Objekt kopieren
-3. Die Werte in `src/firebase.js` eintragen:
-
-```js
-const firebaseConfig = {
-  apiKey: "...",
-  authDomain: "DEIN-PROJEKT.firebaseapp.com",
-  databaseURL: "https://DEIN-PROJEKT-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "DEIN-PROJEKT",
-  storageBucket: "DEIN-PROJEKT.appspot.com",
-  messagingSenderId: "...",
-  appId: "...",
-};
-```
-
-### 5.3 Authorized Domains
-
-Firebase Console → **Authentication** → **Settings** → **Authorized domains**:
-- `localhost` ist bereits eingetragen (für lokale Entwicklung)
-- Nach dem Deploy: `DEIN-PROJEKT.web.app` hinzufügen
-
----
-
-## 6. Datenbankregeln
-
-In der Firebase Console unter **Realtime Database → Regeln** diese Regeln setzen:
-
-**Lesen öffentlich, Schreiben nur mit Login (empfohlen):**
-```json
-{
-  "rules": {
-    ".read": true,
-    ".write": "auth != null"
-  }
-}
 ```
 
 ---
@@ -148,14 +136,22 @@ In der Firebase Console unter **Realtime Database → Regeln** diese Regeln setz
 
 ```
 saucepan/
-├── essensplan.jsx     # Haupt-Komponente (App-Logik + UI)
+├── essensplan.jsx        # Haupt-Komponente
 ├── src/
-│   ├── main.jsx       # React-Einstiegspunkt
-│   └── firebase.js    # Firebase Auth-Konfiguration
-├── index.html         # HTML-Shell
-├── vite.config.js     # Vite-Konfiguration
-├── firebase.json      # Firebase Hosting-Konfiguration
-└── package.json       # Dependencies und Scripts
+│   ├── main.jsx          # React-Einstiegspunkt
+│   ├── firebase.js       # Firebase Auth + DB-Zugriff
+│   ├── useMealPlan.js    # State-Hook (Firebase, Pläne, Rezepte)
+│   ├── WeekView.jsx      # Wochenansicht
+│   ├── EditOverlay.jsx   # Vollbild-Bearbeitungsformular
+│   ├── recipes.js        # Rezeptliste (Seed-Daten)
+│   ├── utils.js          # Datumsfunktionen, nameToId
+│   └── styles.js         # Gemeinsame Button-Styles
+├── scripts/
+│   └── seed.html         # Einmaliges Befüllen der Datenbank
+├── index.html
+├── vite.config.js
+├── firebase.json
+└── package.json
 ```
 
 ## Verfügbare Scripts

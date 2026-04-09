@@ -6,6 +6,32 @@ import { EditOverlay } from "./src/EditOverlay.jsx";
 import { formatDate } from "./src/utils.js";
 import { navBtnStyle, pillBtnStyle } from "./src/styles.js";
 
+const ALLOWED_EMAILS = ["boecker.philipp@googlemail.com", "sarahmeyer1988@gmail.com"];
+
+const fontLink = "https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap";
+
+function FullscreenCenter({ children }) {
+  return (
+    <>
+      <link href={fontLink} rel="stylesheet" />
+      <div style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "'DM Sans', sans-serif",
+        color: "var(--text-primary, #1a1a2e)",
+        background: "var(--bg-base, #faf9f6)",
+        padding: 24,
+        textAlign: "center",
+      }}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export default function MealPlanner() {
   const {
     loading, user, syncStatus,
@@ -16,25 +42,77 @@ export default function MealPlanner() {
 
   const [editingDay, setEditingDay] = useState(null);
 
-  if (loading) {
+  if (loading || user === undefined) {
     return (
-      <div style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: "'DM Sans', sans-serif",
-        color: "var(--text-primary, #1a1a2e)",
-        background: "var(--bg-base, #faf9f6)",
-      }}>
+      <FullscreenCenter>
         <p style={{ fontSize: 18, opacity: 0.6 }}>Lade Essensplan...</p>
-      </div>
+      </FullscreenCenter>
+    );
+  }
+
+  if (!user) {
+    return (
+      <FullscreenCenter>
+        <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 36, fontWeight: 700, margin: "0 0 8px" }}>
+          🍳 Saucepan
+        </h1>
+        <p style={{ fontSize: 15, opacity: 0.5, margin: "0 0 40px" }}>Unser Essensplan</p>
+        <button
+          onClick={signInWithGoogle}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "14px 24px",
+            borderRadius: 14,
+            border: "none",
+            background: "linear-gradient(135deg, #e07a5f, #f2cc8f)",
+            cursor: "pointer",
+            fontSize: 15,
+            fontWeight: 600,
+            fontFamily: "'DM Sans', sans-serif",
+            color: "#fff",
+            boxShadow: "0 4px 16px rgba(224,122,95,0.3)",
+          }}
+        >
+          Mit Google anmelden
+        </button>
+      </FullscreenCenter>
+    );
+  }
+
+  if (!ALLOWED_EMAILS.includes(user.email)) {
+    return (
+      <FullscreenCenter>
+        <p style={{ fontSize: 32, marginBottom: 12 }}>🚫</p>
+        <h2 style={{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 700, margin: "0 0 8px" }}>
+          Kein Zugriff
+        </h2>
+        <p style={{ fontSize: 14, opacity: 0.5, margin: "0 0 32px" }}>
+          {user.email} ist nicht berechtigt.
+        </p>
+        <button
+          onClick={signOutUser}
+          style={{
+            padding: "10px 20px",
+            borderRadius: 12,
+            border: "1px solid rgba(0,0,0,0.1)",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: 14,
+            fontFamily: "'DM Sans', sans-serif",
+            color: "var(--text-primary, #1a1a2e)",
+          }}
+        >
+          Anderes Konto verwenden
+        </button>
+      </FullscreenCenter>
     );
   }
 
   return (
     <>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet" />
+      <link href={fontLink} rel="stylesheet" />
       <div style={{
         minHeight: "100vh",
         background: "var(--bg-base, #faf9f6)",
@@ -84,48 +162,26 @@ export default function MealPlanner() {
               {syncStatus === "error" && (
                 <span style={{ fontSize: 11, color: "#e07a5f" }} title="Sync fehlgeschlagen">&#x26A0; offline</span>
               )}
-              {user === undefined ? null : user ? (
-                <button
-                  onClick={() => { signOutUser(); setEditingDay(null); }}
-                  title={user.displayName || user.email}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "5px 10px",
-                    borderRadius: 20,
-                    border: "1px solid rgba(0,0,0,0.08)",
-                    background: "transparent",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    fontFamily: "'DM Sans', sans-serif",
-                    color: "var(--text-primary, #1a1a2e)",
-                  }}
-                >
-                  {user.photoURL && <img src={user.photoURL} alt="" style={{ width: 18, height: 18, borderRadius: "50%" }} />}
-                  Abmelden
-                </button>
-              ) : (
-                <button
-                  onClick={signInWithGoogle}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "5px 12px",
-                    borderRadius: 20,
-                    border: "none",
-                    background: "linear-gradient(135deg, #e07a5f, #f2cc8f)",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    fontFamily: "'DM Sans', sans-serif",
-                    color: "#fff",
-                  }}
-                >
-                  Anmelden
-                </button>
-              )}
+              <button
+                onClick={() => { signOutUser(); setEditingDay(null); }}
+                title={user.email}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 4px",
+                  borderRadius: 20,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                {user.photoURL
+                  ? <img src={user.photoURL} alt="" style={{ width: 28, height: 28, borderRadius: "50%" }} />
+                  : <span style={{ fontSize: 22 }}>👤</span>
+                }
+              </button>
             </div>
           </div>
         </div>

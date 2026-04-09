@@ -1,38 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { loadFromFirebase, saveToFirebase, FIREBASE_NOT_CONFIGURED, onAuthChange } from "./firebase.js";
-import { INITIAL_RECIPES, SAMPLE_RECIPES } from "./recipes.js";
+import { SAMPLE_RECIPES } from "./recipes.js";
 import { nameToId, getWeekKey, getWeekDates, getKW } from "./utils.js";
-
-const DEFAULT_DATA = {
-  recipes: INITIAL_RECIPES,
-  plans: {
-    "2026-04-04": {
-      "Samstag":    { recipeId: nameToId("Nudeln mit Tomatensauce") },
-      "Sonntag":    null,
-      "Montag":     { recipeId: nameToId("Gemüsetorte") },
-      "Dienstag":   { recipeId: nameToId("Gemüsetorte") },
-      "Mittwoch":   { recipeId: nameToId("Kartoffelpüree mit Spinat") },
-      "Donnerstag": { recipeId: nameToId("Tofu Gyros mit Reis und Tzatziki") },
-      "Freitag":    { recipeId: nameToId("Pizza") },
-    },
-  },
-  history: [
-    nameToId("Nudeln mit Tomatensauce"), nameToId("Kartoffelpüree mit Spinat"),
-    nameToId("Gemüsetorte"), nameToId("Tofu Gyros mit Reis und Tzatziki"), nameToId("Pizza"),
-  ],
-};
 
 // Migrate old Firebase format → new format:
 //   recipes: array  →  { [id]: recipe }
 //   plans:   { day: { meal, emoji, ... } }  →  { day: { recipeId } }
-//   history: [name, ...]  →  [id, ...]
 function migrateData(data) {
   const firstWeek = Object.values(data.plans || {})[0] || {};
   const firstEntry = Object.values(firstWeek).find(Boolean);
   if (!firstEntry || firstEntry.recipeId !== undefined) return data; // already new format
 
   const recipeMap = {};
-  const newRecipes = { ...INITIAL_RECIPES };
+  const newRecipes = {};
   const seedArray = Array.isArray(data.recipes) ? data.recipes : SAMPLE_RECIPES;
   seedArray.forEach(r => {
     const id = nameToId(r.name);
@@ -64,11 +44,7 @@ function migrateData(data) {
     });
   });
 
-  const newHistory = (data.history || [])
-    .map(h => typeof h === "string" ? (recipeMap[h.toLowerCase()] ?? null) : h)
-    .filter(Boolean);
-
-  return { recipes: newRecipes, plans: newPlans, history: newHistory };
+  return { recipes: newRecipes, plans: newPlans };
 }
 
 export function findEmoji(meal, recipes) {
@@ -92,55 +68,49 @@ export function findEmoji(meal, recipes) {
 export function useMealPlan() {
   const [currentWeekKey, setCurrentWeekKey] = useState(() => getWeekKey(new Date()));
   const [plans, setPlans] = useState({});
-  const [history, setHistory] = useState([]);
-  const [recipes, setRecipes] = useState(INITIAL_RECIPES);
+  const [recipes, setRecipes] = useState({});
   const [syncStatus, setSyncStatus] = useState("idle");
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(undefined);
 
   useEffect(() => onAuthChange(setUser), []);
 
+  // Wait for auth state to resolve before loading data.
+  // user === undefined means Firebase Auth hasn't responded yet.
+  // user === null means not logged in → no load needed.
   useEffect(() => {
+    if (user === undefined) return; // still resolving
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     async function load() {
-      if (FIREBASE_NOT_CONFIGURED) {
-        setPlans(DEFAULT_DATA.plans);
-        setHistory(DEFAULT_DATA.history);
-        setLoading(false);
-        return;
-      }
       try {
-        let data = await loadFromFirebase();
+        let data = await loadFromFirebase(user);
         if (data && data.plans) {
           data = migrateData(data);
-          setPlans(data.plans);
-          setHistory(data.history || []);
-          setRecipes(data.recipes || INITIAL_RECIPES);
-        } else {
-          setPlans(DEFAULT_DATA.plans);
-          setHistory(DEFAULT_DATA.history);
-          setRecipes(DEFAULT_DATA.recipes);
         }
+        setPlans(data?.plans || {});
+        setRecipes(data?.recipes || {});
       } catch {
-        setPlans(DEFAULT_DATA.plans);
-        setHistory(DEFAULT_DATA.history);
-        setRecipes(DEFAULT_DATA.recipes);
         setSyncStatus("error");
       }
       setLoading(false);
     }
     load();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (FIREBASE_NOT_CONFIGURED) return;
+    if (FIREBASE_NOT_CONFIGURED || !user) return;
     const interval = setInterval(async () => {
       try {
-        const raw = await loadFromFirebase();
+        const raw = await loadFromFirebase(user);
         if (raw && raw.plans) {
           const data = migrateData(raw);
-          setPlans(data.plans);
-          setHistory(data.history || []);
-          setRecipes(data.recipes || INITIAL_RECIPES);
+          setPlans(data.plans || {});
+          setRecipes(data.recipes || {});
         }
       } catch {
         // Silently ignore polling errors
@@ -149,11 +119,11 @@ export function useMealPlan() {
     return () => clearInterval(interval);
   }, []);
 
-  const saveData = useCallback(async (newPlans, newHistory, newRecipes) => {
+  const saveData = useCallback(async (newPlans, newRecipes) => {
     if (FIREBASE_NOT_CONFIGURED || !user) return;
     setSyncStatus("saving");
     try {
-      await saveToFirebase({ plans: newPlans, history: newHistory, recipes: newRecipes }, user);
+      await saveToFirebase({ plans: newPlans, recipes: newRecipes }, user);
       setSyncStatus("idle");
     } catch (e) {
       console.error("Save failed:", e);
@@ -180,7 +150,7 @@ export function useMealPlan() {
     const existingEntry = Object.entries(recipes).find(([, r]) => r.name.toLowerCase() === lower);
     const recipeId = existingEntry ? existingEntry[0] : nameToId(meal);
     const resolvedEmoji = emoji || (existingEntry ? existingEntry[1].emoji : findEmoji(meal, recipes));
-    const cleanLinks = links.filter(l => l.trim());
+    const cleanLinks = links.filter(l => (typeof l === "string" ? l : l.url).trim());
 
     const newRecipes = {
       ...recipes,
@@ -191,14 +161,10 @@ export function useMealPlan() {
 
     const newWeekPlan = { ...weekPlan, [day]: { recipeId } };
     const newPlans = { ...plans, [currentWeekKey]: newWeekPlan };
-    const newHistory = !history.includes(recipeId)
-      ? [recipeId, ...history].slice(0, 100)
-      : history;
 
     setPlans(newPlans);
-    setHistory(newHistory);
     setRecipes(newRecipes);
-    saveData(newPlans, newHistory, newRecipes);
+    saveData(newPlans, newRecipes);
   }
 
   function removeMeal(day) {
@@ -206,7 +172,7 @@ export function useMealPlan() {
     delete newWeekPlan[day];
     const newPlans = { ...plans, [currentWeekKey]: newWeekPlan };
     setPlans(newPlans);
-    saveData(newPlans, history, recipes);
+    saveData(newPlans, recipes);
   }
 
   return {
