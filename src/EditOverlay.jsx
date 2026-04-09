@@ -12,6 +12,8 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
   const [kidFavorite, setKidFavorite] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("alle");
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
 
   // Populate form when opening a day
   useEffect(() => {
@@ -24,8 +26,30 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
     setLinkValues(recipe?.links?.length ? recipe.links : [""]);
     setKidFavorite(recipe?.kidFav || false);
     setShowSuggestions(false);
+    setShowAutocomplete(false);
     setSuggestionFilter("alle");
   }, [editingDay]);
+
+  const autocompleteMatches = showAutocomplete && inputValue.trim().length > 0
+    ? Object.values(recipes)
+        .filter(r => r.name.toLowerCase().includes(inputValue.toLowerCase()))
+        .sort((a, b) => {
+          const aStarts = a.name.toLowerCase().startsWith(inputValue.toLowerCase());
+          const bStarts = b.name.toLowerCase().startsWith(inputValue.toLowerCase());
+          if (aStarts !== bStarts) return aStarts ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        })
+        .slice(0, 7)
+    : [];
+
+  function applyAutocomplete(recipe) {
+    setInputValue(recipe.name);
+    setEmojiValue(recipe.emoji || "");
+    setLinkValues(recipe.links?.length ? recipe.links : [""]);
+    setNoteValue(recipe.note || "");
+    setKidFavorite(!!recipe.kidFav);
+    setShowAutocomplete(false);
+  }
 
   function getSuggestions() {
     const usedIds = new Set(Object.values(weekPlan).map(v => v?.recipeId).filter(Boolean));
@@ -89,46 +113,112 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
       {/* Form */}
       <div style={{ padding: "24px 16px", flex: 1 }}>
         {/* Emoji + Name */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid rgba(224,122,95,0.3)", paddingBottom: 2 }}>
-          <input
-            value={emojiValue}
-            onChange={e => setEmojiValue(e.target.value)}
-            placeholder="🍽️"
-            style={{
-              width: 48,
-              fontSize: 26,
-              textAlign: "center",
-              border: "none",
-              background: "rgba(0,0,0,0.04)",
-              borderRadius: 10,
-              outline: "none",
-              padding: "6px 4px",
-              cursor: "text",
-              flexShrink: 0,
-              fontFamily: "sans-serif",
-            }}
-          />
-          <input
-            autoFocus
-            value={inputValue}
-            onChange={e => setInputValue(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && inputValue.trim()) handleSave();
-              if (e.key === "Escape") onClose();
-            }}
-            placeholder="Was wird gekocht?"
-            style={{
-              flex: 1,
-              padding: "14px 0",
-              border: "none",
-              background: "transparent",
-              fontSize: 18,
-              fontFamily: "'DM Sans', sans-serif",
-              outline: "none",
-              color: "var(--text-primary, #1a1a2e)",
-              boxSizing: "border-box",
-            }}
-          />
+        <div style={{ position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid rgba(224,122,95,0.3)", paddingBottom: 2 }}>
+            <input
+              value={emojiValue}
+              onChange={e => setEmojiValue(e.target.value)}
+              placeholder="🍽️"
+              style={{
+                width: 48,
+                fontSize: 26,
+                textAlign: "center",
+                border: "none",
+                background: "rgba(0,0,0,0.04)",
+                borderRadius: 10,
+                outline: "none",
+                padding: "6px 4px",
+                cursor: "text",
+                flexShrink: 0,
+                fontFamily: "sans-serif",
+              }}
+            />
+            <input
+              autoFocus
+              value={inputValue}
+              onChange={e => {
+                setInputValue(e.target.value);
+                setShowAutocomplete(true);
+                setAutocompleteIndex(0);
+              }}
+              onKeyDown={e => {
+                if (showAutocomplete && autocompleteMatches.length > 0) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setAutocompleteIndex(i => Math.min(i + 1, autocompleteMatches.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setAutocompleteIndex(i => Math.max(i - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applyAutocomplete(autocompleteMatches[autocompleteIndex]);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    setShowAutocomplete(false);
+                    return;
+                  }
+                }
+                if (e.key === "Enter" && inputValue.trim()) handleSave();
+                if (e.key === "Escape") onClose();
+              }}
+              onBlur={() => setTimeout(() => setShowAutocomplete(false), 150)}
+              placeholder="Was wird gekocht?"
+              style={{
+                flex: 1,
+                padding: "14px 0",
+                border: "none",
+                background: "transparent",
+                fontSize: 18,
+                fontFamily: "'DM Sans', sans-serif",
+                outline: "none",
+                color: "var(--text-primary, #1a1a2e)",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {/* Autocomplete dropdown */}
+          {autocompleteMatches.length > 0 && (
+            <div style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              right: 0,
+              background: "var(--bg-base, #faf9f6)",
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+              zIndex: 10,
+              overflow: "hidden",
+              marginTop: 4,
+            }}>
+              {autocompleteMatches.map((r, idx) => (
+                <div
+                  key={r.name}
+                  onMouseDown={() => applyAutocomplete(r)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "11px 14px",
+                    cursor: "pointer",
+                    background: idx === autocompleteIndex ? "rgba(224,122,95,0.08)" : "transparent",
+                    borderBottom: idx < autocompleteMatches.length - 1 ? "1px solid rgba(0,0,0,0.04)" : "none",
+                  }}
+                  onMouseEnter={() => setAutocompleteIndex(idx)}
+                >
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{r.emoji}</span>
+                  <span style={{ fontSize: 15, fontWeight: 500 }}>{r.name}</span>
+                  {r.kidFav && <span style={{ fontSize: 10, background: "linear-gradient(135deg, #ffecd2, #fcb69f)", padding: "2px 6px", borderRadius: 6, marginLeft: "auto" }}>👶</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Links */}
