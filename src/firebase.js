@@ -1,32 +1,7 @@
-// ─── Firebase Datenbank-URL ────────────────────────────────────────────────────
-const FIREBASE_URL = "https://saucepan-23db2-default-rtdb.europe-west1.firebasedatabase.app/essensplan";
-// ──────────────────────────────────────────────────────────────────────────────
-
-export const FIREBASE_NOT_CONFIGURED = FIREBASE_URL.includes("DEIN-PROJEKT");
-
-export async function loadFromFirebase(user) {
-  const token = user ? await user.getIdToken() : null;
-  const url = token ? `${FIREBASE_URL}.json?auth=${token}` : `${FIREBASE_URL}.json`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Firebase Ladefehler: ${res.status}`);
-  return await res.json();
-}
-
-export async function saveToFirebase(data, user) {
-  const token = await user.getIdToken();
-  const res = await fetch(`${FIREBASE_URL}.json?auth=${token}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`Firebase Speicherfehler: ${res.status}`);
-}
-
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 
 // ─── Firebase Web-App Konfiguration ───────────────────────────────────────────
-// Werte kommen aus .env.local (nie committen!) – siehe .env.example als Vorlage
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -38,19 +13,106 @@ const firebaseConfig = {
 };
 // ──────────────────────────────────────────────────────────────────────────────
 
+const FIREBASE_BASE = import.meta.env.VITE_FIREBASE_DATABASE_URL;
+export const FIREBASE_NOT_CONFIGURED = !FIREBASE_BASE || FIREBASE_BASE.includes("DEIN-PROJEKT");
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 const googleProvider = new GoogleAuthProvider();
+export function signInWithGoogle() { return signInWithPopup(auth, googleProvider); }
+export function signOutUser() { return signOut(auth); }
+export function onAuthChange(callback) { return onAuthStateChanged(auth, callback); }
 
-export function signInWithGoogle() {
-  return signInWithPopup(auth, googleProvider);
+async function getToken(user) { return user.getIdToken(); }
+
+// ── User-Profil ───────────────────────────────────────────────────────────────
+
+export async function getUserPlan(user) {
+  const token = await getToken(user);
+  const res = await fetch(`${FIREBASE_BASE}/users/${user.uid}/planId.json?auth=${token}`);
+  if (!res.ok) throw new Error(`Fehler: ${res.status}`);
+  return await res.json(); // planId-String oder null
 }
 
-export function signOutUser() {
-  return signOut(auth);
+async function saveUserProfile(user, planId, token) {
+  const res = await fetch(`${FIREBASE_BASE}/users/${user.uid}.json?auth=${token}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planId, email: user.email, displayName: user.displayName }),
+  });
+  if (!res.ok) throw new Error(`Profil speichern fehlgeschlagen: ${res.status}`);
 }
 
-export function onAuthChange(callback) {
-  return onAuthStateChanged(auth, callback);
+export async function clearUserPlan(user) {
+  const token = await getToken(user);
+  await fetch(`${FIREBASE_BASE}/users/${user.uid}/planId.json?auth=${token}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(null),
+  });
+}
+
+// ── Plan-Verwaltung ───────────────────────────────────────────────────────────
+
+function generatePlanId() {
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+export async function createPlan(user, name) {
+  const token = await getToken(user);
+  const planId = generatePlanId();
+  const res = await fetch(`${FIREBASE_BASE}/essensplan/${planId}.json?auth=${token}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      members: { [user.uid]: true },
+      recipes: {},
+      plans: {},
+    }),
+  });
+  if (!res.ok) throw new Error(`Plan erstellen fehlgeschlagen: ${res.status}`);
+  await saveUserProfile(user, planId, token);
+  return planId;
+}
+
+export async function getPlanName(user, planId) {
+  const token = await getToken(user);
+  const res = await fetch(`${FIREBASE_BASE}/essensplan/${planId}/name.json?auth=${token}`);
+  if (!res.ok) return null;
+  return await res.json(); // Name-String oder null
+}
+
+export async function joinPlan(user, planId) {
+  const token = await getToken(user);
+  const name = await getPlanName(user, planId);
+  if (!name) throw new Error("Plan nicht gefunden. Bitte Code prüfen.");
+  const res = await fetch(`${FIREBASE_BASE}/essensplan/${planId}/members/${user.uid}.json?auth=${token}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(true),
+  });
+  if (!res.ok) throw new Error(`Beitreten fehlgeschlagen: ${res.status}`);
+  await saveUserProfile(user, planId, token);
+}
+
+// ── Daten laden/speichern ─────────────────────────────────────────────────────
+
+export async function loadFromFirebase(user, planId) {
+  const token = await getToken(user);
+  const res = await fetch(`${FIREBASE_BASE}/essensplan/${planId}.json?auth=${token}`);
+  if (!res.ok) throw new Error(`Firebase Ladefehler: ${res.status}`);
+  return await res.json();
+}
+
+export async function saveToFirebase(data, user, planId) {
+  const token = await getToken(user);
+  // PATCH statt PUT — überschreibt nicht name/members
+  const res = await fetch(`${FIREBASE_BASE}/essensplan/${planId}.json?auth=${token}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Firebase Speicherfehler: ${res.status}`);
 }

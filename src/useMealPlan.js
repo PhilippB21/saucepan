@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { loadFromFirebase, saveToFirebase, FIREBASE_NOT_CONFIGURED, onAuthChange } from "./firebase.js";
+import { loadFromFirebase, saveToFirebase, FIREBASE_NOT_CONFIGURED } from "./firebase.js";
 import { SAMPLE_RECIPES } from "./recipes.js";
 import { nameToId, getWeekKey, getWeekDates, getKW } from "./utils.js";
 
@@ -65,75 +65,74 @@ export function findEmoji(meal, recipes) {
   return "🍽️";
 }
 
-export function useMealPlan() {
+// user und planId kommen von aussen (usePlanAccess)
+export function useMealPlan(user, planId) {
   const [currentWeekKey, setCurrentWeekKey] = useState(() => getWeekKey(new Date()));
-  const [plans, setPlans] = useState({});
-  const [recipes, setRecipes] = useState({});
+  const [plans, setPlans]       = useState({});
+  const [recipes, setRecipes]   = useState({});
+  const [planName, setPlanName] = useState(null);
   const [syncStatus, setSyncStatus] = useState("idle");
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(undefined);
+  const [loading, setLoading]   = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
-  useEffect(() => onAuthChange(setUser), []);
-
-  // Wait for auth state to resolve before loading data.
-  // user === undefined means Firebase Auth hasn't responded yet.
-  // user === null means not logged in → no load needed.
+  // Laden sobald user + planId bekannt sind
   useEffect(() => {
-    if (user === undefined) return; // still resolving
-
-    if (!user) {
+    if (!user || !planId) {
       setLoading(false);
       return;
     }
-
+    setLoading(true);
     async function load() {
       try {
-        let data = await loadFromFirebase(user);
-        if (data && data.plans) {
-          data = migrateData(data);
-        }
+        let data = await loadFromFirebase(user, planId);
+        if (data && data.plans) data = migrateData(data);
         setPlans(data?.plans || {});
         setRecipes(data?.recipes || {});
-      } catch {
-        setSyncStatus("error");
+        setPlanName(data?.name || null);
+        setAccessDenied(false);
+      } catch (e) {
+        if (e.message.includes("401") || e.message.includes("403")) {
+          setAccessDenied(true);
+        } else {
+          setSyncStatus("error");
+        }
       }
       setLoading(false);
     }
     load();
-  }, [user]);
+  }, [user, planId]);
 
+  // Polling alle 30 s
   useEffect(() => {
-    if (FIREBASE_NOT_CONFIGURED || !user) return;
+    if (FIREBASE_NOT_CONFIGURED || !user || !planId) return;
     const interval = setInterval(async () => {
       try {
-        const raw = await loadFromFirebase(user);
+        const raw = await loadFromFirebase(user, planId);
         if (raw && raw.plans) {
           const data = migrateData(raw);
           setPlans(data.plans || {});
           setRecipes(data.recipes || {});
         }
-      } catch {
-        // Silently ignore polling errors
-      }
+      } catch { /* Polling-Fehler still ignorieren */ }
     }, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user, planId]);
 
   const saveData = useCallback(async (newPlans, newRecipes) => {
-    if (FIREBASE_NOT_CONFIGURED || !user) return;
+    if (FIREBASE_NOT_CONFIGURED || !user || !planId) return;
     setSyncStatus("saving");
     try {
-      await saveToFirebase({ plans: newPlans, recipes: newRecipes }, user);
+      await saveToFirebase({ plans: newPlans, recipes: newRecipes }, user, planId);
       setSyncStatus("idle");
     } catch (e) {
       console.error("Save failed:", e);
       setSyncStatus("error");
     }
-  }, [user]);
+  }, [user, planId]);
 
   const weekDates = getWeekDates(currentWeekKey);
-  const kw = getKW(currentWeekKey);
-  const weekPlan = plans[currentWeekKey] || {};
+  const kw        = getKW(currentWeekKey);
+  const weekPlan  = plans[currentWeekKey] || {};
 
   function navigateWeek(dir) {
     const sat = new Date(currentWeekKey + "T12:00:00");
@@ -160,7 +159,7 @@ export function useMealPlan() {
     };
 
     const newWeekPlan = { ...weekPlan, [day]: { recipeId } };
-    const newPlans = { ...plans, [currentWeekKey]: newWeekPlan };
+    const newPlans    = { ...plans, [currentWeekKey]: newWeekPlan };
 
     setPlans(newPlans);
     setRecipes(newRecipes);
@@ -176,7 +175,8 @@ export function useMealPlan() {
   }
 
   return {
-    loading, user, syncStatus,
+    loading, syncStatus, accessDenied,
+    planName,
     weekPlan, weekDates, kw,
     recipes,
     setMeal, removeMeal, navigateWeek, goToToday,

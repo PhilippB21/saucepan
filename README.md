@@ -1,6 +1,6 @@
 # Saucepan – Familien-Essensplan
 
-Wöchentlicher Essensplaner für mehrere Geräte und Personen. Daten werden in Firebase Realtime Database gespeichert und sind in Echtzeit synchronisiert.
+Wöchentlicher Essensplaner für mehrere Geräte und Personen. Mehrere Nutzer können gemeinsam an einem Essensplan arbeiten. Daten werden in Firebase Realtime Database gespeichert und sind in Echtzeit synchronisiert.
 
 ## Voraussetzungen
 
@@ -16,7 +16,7 @@ Wöchentlicher Essensplaner für mehrere Geräte und Personen. Daten werden in F
 1. [Firebase Console](https://console.firebase.google.com) öffnen
 2. **„Projekt hinzufügen"** → Namen vergeben (z. B. `saucepan`) → Projekt erstellen
 3. Im Projekt: linkes Menü → **„Erstellen" → „Realtime Database"**
-4. **„Datenbank erstellen"** → Standort wählen → Im nächsten Schritt die Regeln manuell setzen (siehe [Abschnitt 4](#4-datenbankregeln))
+4. **„Datenbank erstellen"** → Standort wählen → Regeln im nächsten Schritt manuell setzen (siehe [Abschnitt 4](#4-datenbankregeln))
 
 ### 1.2 Google Sign-In aktivieren
 
@@ -55,7 +55,7 @@ firebase use --add   # Projekt aus der Liste wählen, Alias "default" vergeben
 
 ## 3. Datenbank initial befüllen
 
-Die App enthält keine eingebetteten Fallback-Daten mehr – sie arbeitet ausschließlich mit dem, was in Firebase steht. Die Rezeptliste muss daher **einmalig** per Seed-Skript in die Datenbank geschrieben werden.
+Die App enthält keine eingebetteten Fallback-Daten – sie arbeitet ausschließlich mit dem, was in Firebase steht. Die Rezeptliste muss daher **einmalig** per Seed-Skript in die Datenbank geschrieben werden.
 
 ```bash
 npm run dev
@@ -67,32 +67,53 @@ Dann im Browser öffnen:
 http://localhost:5173/scripts/seed.html
 ```
 
-1. **„Mit Google anmelden"** klicken und ein erlaubtes Konto verwenden
-2. **„Datenbank befüllen"** klicken
-3. Nach der Erfolgsmeldung das Fenster schließen
+1. **„Mit Google anmelden"** klicken
+2. Das Skript erkennt automatisch den Essensplan des angemeldeten Nutzers und trägt die Plan-ID ein
+3. Falls noch kein Plan existiert, das Feld leer lassen – es wird automatisch ein neuer Plan angelegt
+4. **„Rezepte schreiben"** klicken
+5. Nach der Erfolgsmeldung das Fenster schließen
 
-Das Skript schreibt alle Rezepte sowie leere Pläne und einen leeren Verlauf. **Bereits vorhandene Daten in Firebase werden dabei überschrieben.**
+> Bei einem **bestehenden Plan** werden nur die Rezepte überschrieben – Pläne und Mitglieder bleiben erhalten.  
+> Bei einem **neuen Plan** wird der Plan vollständig angelegt und mit dem angemeldeten Konto verknüpft.
 
 ---
 
 ## 4. Datenbankregeln
 
-In der Firebase Console unter **Realtime Database → Regeln** diese Regeln setzen und die erlaubten E-Mail-Adressen anpassen:
+In der Firebase Console unter **Realtime Database → Regeln** folgende Regeln setzen:
 
 ```json
 {
   "rules": {
-    ".read": "auth != null && (auth.token.email === 'adresse1@gmail.com' || auth.token.email === 'adresse2@gmail.com')",
-    ".write": "auth != null && (auth.token.email === 'adresse1@gmail.com' || auth.token.email === 'adresse2@gmail.com')"
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "essensplan": {
+      "$planId": {
+        ".read": "auth != null && data.child('members').child(auth.uid).val() === true",
+        ".write": "auth != null && (data.child('members').child(auth.uid).val() === true || !data.exists())",
+        "name": { ".read": "auth != null" },
+        "members": {
+          "$uid": { ".write": "auth != null && auth.uid === $uid && !data.exists()" }
+        }
+      }
+    }
   }
 }
 ```
 
-Die gleichen Adressen müssen auch in `essensplan.jsx` in der `ALLOWED_EMAILS`-Liste stehen:
+**Erklärung der Regeln:**
 
-```js
-const ALLOWED_EMAILS = ["adresse1@gmail.com", "adresse2@gmail.com"];
-```
+| Pfad | Regel |
+|---|---|
+| `/users/{uid}` | Nur der jeweilige Nutzer kann sein Profil lesen und schreiben |
+| `/essensplan/{planId}` (lesen) | Nur Mitglieder des Plans (`members.{uid} === true`) |
+| `/essensplan/{planId}` (schreiben) | Mitglieder, oder einmalig beim Anlegen eines neuen Plans |
+| `/essensplan/{planId}/name` | Jeder angemeldete Nutzer kann den Plan-Namen lesen (für Einladungsflow) |
+| `/essensplan/{planId}/members/{uid}` | Jeder Nutzer kann sich selbst einmalig als Mitglied eintragen (Beitreten per Code) |
 
 ### Authorized Domains
 
@@ -102,7 +123,29 @@ Firebase Console → **Authentication** → **Settings** → **Authorized domain
 
 ---
 
-## 5. Lokal testen
+## 5. Mehrere Nutzer & Einladungen
+
+Jeder Nutzer kann genau einem Essensplan angehören. Ein Plan kann von mehreren Personen gemeinsam verwaltet werden.
+
+### Ersten Plan erstellen
+
+1. App öffnen und mit Google anmelden
+2. **„Neuer Plan"** → Namen eingeben → **„Plan erstellen"**
+3. Der 6-stellige Einladungscode erscheint im Header (z. B. `X4K9QM`)
+
+### Weitere Personen einladen
+
+1. Einladungscode im Header antippen → Code kopieren
+2. Code an die andere Person weiterschicken
+3. Diese Person öffnet die App, wählt **„Beitreten"** und gibt den Code ein
+
+### Plan verlassen
+
+Einladungscode im Header antippen → **„Plan verlassen"** → der Nutzer kann danach einem anderen Plan beitreten oder einen neuen erstellen.
+
+---
+
+## 6. Lokal testen
 
 ```bash
 npm run dev
@@ -112,7 +155,7 @@ Die App ist unter [http://localhost:5173](http://localhost:5173) erreichbar.
 
 ---
 
-## 6. Deployen
+## 7. Deployen
 
 ```bash
 npm run build
@@ -136,15 +179,16 @@ npm run build && firebase deploy
 
 ```
 saucepan/
-├── essensplan.jsx        # Haupt-Komponente
+├── essensplan.jsx        # Haupt-Komponente (Login, Plan-Auswahl, App-Shell)
 ├── src/
 │   ├── main.jsx          # React-Einstiegspunkt
-│   ├── firebase.js       # Firebase Auth + DB-Zugriff
-│   ├── useMealPlan.js    # State-Hook (Firebase, Pläne, Rezepte)
-│   ├── WeekView.jsx      # Wochenansicht
+│   ├── firebase.js       # Firebase Auth + DB-Zugriff (inkl. Plan-Verwaltung)
+│   ├── usePlanAccess.js  # Hook: Auth-Status + Plan-Zugehörigkeit
+│   ├── useMealPlan.js    # Hook: Wochenpläne, Rezepte, Firebase-Sync
+│   ├── WeekView.jsx      # Wochenansicht mit Tageskarten
 │   ├── EditOverlay.jsx   # Vollbild-Bearbeitungsformular
-│   ├── recipes.js        # Rezeptliste (Seed-Daten)
-│   ├── utils.js          # Datumsfunktionen, nameToId
+│   ├── recipes.js        # Rezeptliste (für Seed-Skript)
+│   ├── utils.js          # Datumsfunktionen, nameToId, KW-Berechnung
 │   └── styles.js         # Gemeinsame Button-Styles
 ├── scripts/
 │   └── seed.html         # Einmaliges Befüllen der Datenbank

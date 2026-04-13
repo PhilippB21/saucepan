@@ -19,7 +19,15 @@
      Bereits vorhandene Daten werden <strong>überschrieben</strong>.</p>
 
   <button id="btnLogin">Mit Google anmelden</button>
-  <button id="btnSeed" disabled>Datenbank befüllen</button>
+
+  <div id="planSection" style="display:none; margin-top: 20px;">
+    <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">
+      Plan-ID (automatisch erkannt – leer lassen für neuen Plan)
+    </label>
+    <input id="planIdInput" placeholder="z.B. X4K9QM"
+      style="padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; font-size: 16px; font-family: monospace; letter-spacing: 2px; width: 100%; box-sizing: border-box; margin-bottom: 10px;" />
+    <button id="btnSeed">Rezepte schreiben</button>
+  </div>
 
   <div id="log"></div>
 
@@ -140,7 +148,7 @@
       { name: "Tortelloni mit Käse-Schinken-Sauce", tags: ["pasta", "schnell"], emoji: "🥟", kidFav: true, link: "", note: "" },
       { name: "Tortelloni mit Tomatensauce für jeden Tag", tags: ["pasta", "schnell", "vegan"], emoji: "🥟", kidFav: true, link: "https://cookidoo.de/recipes/recipe/de-DE/r134617", note: "" },
       { name: "Vegane Bolognese mit Blumenkohl", tags: ["pasta", "vegan"], emoji: "🍝", kidFav: false, link: "", note: "" },
-      { name: "Vegetarische Burger", tags: ["vegetarisch", "klassiker"], emoji: "🍔", kidFav: false, link: "", note: "" },
+      { name: "Vegetarische Burger", tags: ["vegetarisch", "klassiker"], emoji: "🍔", kidFav: false, links: [{ url: "https://cookidoo.de/recipes/recipe/de-DE/r136270", label: "Couscous-Möhren-Patties" }], note: "" },
       { name: "Vollkornpizza", tags: ["backen", "vegetarisch"], emoji: "🍕", kidFav: false, link: "", note: "" },
       { name: "Wraps", tags: ["schnell"], emoji: "🌯", kidFav: false, link: "", note: "" },
       { name: "Wraps + Halloumi", tags: ["vegetarisch", "schnell"], emoji: "🌯", kidFav: false, link: "", note: "" },
@@ -156,8 +164,9 @@
     ];
 
     const recipes = Object.fromEntries(SAMPLE_RECIPES.map(r => {
-      const { link, ...rest } = r;
-      return [nameToId(r.name), { ...rest, links: link ? [link] : [] }];
+      const { link, links, ...rest } = r;
+      const resolvedLinks = links ?? (link ? [{ url: link, label: "" }] : []);
+      return [nameToId(r.name), { ...rest, links: resolvedLinks }];
     }));
 
     const SEED_DATA = {
@@ -167,6 +176,14 @@
 
     // ── UI-Logik ───────────────────────────────────────────────────────────────
     let currentUser = null;
+    let targetPlanId = null;
+
+    async function loadUserPlan(user) {
+      const token = await user.getIdToken();
+      const res = await fetch(`${FIREBASE_URL.replace("/essensplan", "")}/users/${user.uid}/planId.json?auth=${token}`);
+      if (!res.ok) return null;
+      return await res.json();
+    }
 
     document.getElementById("btnLogin").addEventListener("click", async () => {
       try {
@@ -174,6 +191,20 @@
         currentUser = result.user;
         log(`✅ Eingeloggt als: ${currentUser.email}`);
         document.getElementById("btnLogin").disabled = true;
+
+        // Plan-ID des Nutzers laden
+        log("🔍 Suche zugehörigen Essensplan...");
+        const existingPlanId = await loadUserPlan(currentUser);
+
+        if (existingPlanId) {
+          targetPlanId = existingPlanId;
+          log(`📋 Plan gefunden: ${existingPlanId}`);
+          document.getElementById("planIdInput").value = existingPlanId;
+        } else {
+          log("ℹ️  Kein Plan gefunden. Bitte Plan-ID eingeben oder leer lassen für einen neuen Plan.");
+        }
+
+        document.getElementById("planSection").style.display = "block";
         document.getElementById("btnSeed").disabled = false;
       } catch (e) {
         log(`❌ Login fehlgeschlagen: ${e.message}`);
@@ -182,18 +213,51 @@
 
     document.getElementById("btnSeed").addEventListener("click", async () => {
       if (!currentUser) return;
+
+      const inputPlanId = document.getElementById("planIdInput").value.trim().toUpperCase();
+      const planId = inputPlanId || Math.random().toString(36).slice(2, 8).toUpperCase();
+
       document.getElementById("btnSeed").disabled = true;
-      log("⏳ Schreibe Daten...");
+      log(`⏳ Schreibe Rezepte in Plan "${planId}"...`);
+
       try {
         const token = await currentUser.getIdToken();
-        const res = await fetch(`${FIREBASE_URL}.json?auth=${token}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(SEED_DATA),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        log(`✅ Fertig! ${Object.keys(recipes).length} Rezepte geschrieben.`);
-        log("   Pläne: leer");
+        const base = FIREBASE_URL.replace("/essensplan", "");
+        const planUrl = `${base}/essensplan/${planId}`;
+
+        // Plan anlegen (PATCH, um bestehende plans/members nicht zu überschreiben)
+        const isNew = !inputPlanId;
+        if (isNew) {
+          // Neuer Plan: komplett anlegen mit members
+          const res = await fetch(`${planUrl}.json?auth=${token}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: "Essensplan",
+              members: { [currentUser.uid]: true },
+              recipes,
+              plans: {},
+            }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          // Nutzerprofil aktualisieren
+          await fetch(`${base}/users/${currentUser.uid}.json?auth=${token}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planId, email: currentUser.email, displayName: currentUser.displayName }),
+          });
+          log(`✅ Neuer Plan "${planId}" erstellt und ${Object.keys(recipes).length} Rezepte geschrieben.`);
+        } else {
+          // Bestehender Plan: nur Rezepte aktualisieren
+          const res = await fetch(`${planUrl}/recipes.json?auth=${token}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(recipes),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          log(`✅ ${Object.keys(recipes).length} Rezepte in Plan "${planId}" geschrieben.`);
+        }
+
         log("\nDu kannst dieses Fenster jetzt schließen.");
       } catch (e) {
         log(`❌ Fehler: ${e.message}`);
