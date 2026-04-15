@@ -279,6 +279,29 @@ export function EditOverlay({ editingDay, weekDates, weekPlan, recipes, onSave, 
               )}
             </div>
             {lv.url.startsWith("http") && (
+              <a
+                href={`https://api.getbring.com/rest/bringrecipes/deeplink?url=${encodeURIComponent(lv.url)}&source=web`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  marginTop: 6,
+                  padding: "4px 10px",
+                  background: "rgba(0,180,100,0.1)",
+                  color: "#00a855",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+              >
+                🛒 Zu Bring! hinzufügen
+              </a>
+            )}
+            {lv.url.startsWith("http") && (
               <input
                 value={lv.label}
                 onChange={e => {
